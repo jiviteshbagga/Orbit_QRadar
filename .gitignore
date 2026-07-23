@@ -1,0 +1,11 @@
+node_modules/
+backend/.env
+frontend/dist/
+.DS_Store
+
+# Ignore legacy Java files and IDE configs
+out/
+src/
+webapp/
+.idea/
+*.class
