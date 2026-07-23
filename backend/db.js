@@ -2,6 +2,7 @@ const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 const host = process.env.DB_HOST || 'localhost';
+const port = parseInt(process.env.DB_PORT) || 3306;
 const user = process.env.DB_USER || 'root';
 const password = process.env.DB_PASSWORD || '';
 const database = process.env.DB_NAME || 'qradar_audit_db';
@@ -83,7 +84,7 @@ async function initDB() {
   try {
     const ssl = (host !== 'localhost' && host !== '127.0.0.1') ? { rejectUnauthorized: false } : null;
 
-    const connectionOptions = { host, user, password };
+    const connectionOptions = { host, port, user, password };
     if (ssl) connectionOptions.ssl = ssl;
 
     const initConnection = await mysql.createConnection(connectionOptions);
@@ -92,6 +93,7 @@ async function initDB() {
 
     const poolOptions = {
       host,
+      port,
       user,
       password,
       database,
