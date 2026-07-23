@@ -1,0 +1,20 @@
+/* CSS Reset for QRadar SOC Dashboard */
+html, body {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  background-color: #0c0e14;
+}
+
+*, *:before, *:after {
+  box-sizing: inherit;
+}
+
+#root {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  text-align: left !important;
+  min-height: 100vh;
+}

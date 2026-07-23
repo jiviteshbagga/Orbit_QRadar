@@ -3,9 +3,9 @@ backend/.env
 frontend/dist/
 .DS_Store
 
-# Ignore legacy Java files and IDE configs
-out/
-src/
-webapp/
+# Ignore legacy Java files and IDE configs at root only
+/out/
+/src/
+/webapp/
 .idea/
 *.class
