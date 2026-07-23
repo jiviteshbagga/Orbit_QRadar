@@ -81,11 +81,16 @@ const mockDB = {
 
 async function initDB() {
   try {
-    const initConnection = await mysql.createConnection({ host, user, password });
+    const ssl = (host !== 'localhost' && host !== '127.0.0.1') ? { rejectUnauthorized: false } : null;
+
+    const connectionOptions = { host, user, password };
+    if (ssl) connectionOptions.ssl = ssl;
+
+    const initConnection = await mysql.createConnection(connectionOptions);
     await initConnection.query(`CREATE DATABASE IF NOT EXISTS \`${database}\`;`);
     await initConnection.end();
 
-    pool = mysql.createPool({
+    const poolOptions = {
       host,
       user,
       password,
@@ -93,7 +98,10 @@ async function initDB() {
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0
-    });
+    };
+    if (ssl) poolOptions.ssl = ssl;
+
+    pool = mysql.createPool(poolOptions);
 
     console.log(`[DATABASE] Connected to MySQL at ${host}:${database}`);
 
