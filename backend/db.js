@@ -16,59 +16,8 @@ const mockDB = {
     { id: 1, username: 'admin', password: 'admin123', role: 'ADMIN' },
     { id: 2, username: 'user', password: 'user123', role: 'USER' }
   ],
-  log_activity: [
-    {
-      id: 1,
-      timestamp: new Date(Date.now() - 15 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
-      username: 'admin',
-      ip_address: '192.168.1.12',
-      device_name: 'Windows 11 Client',
-      location: 'Local Network',
-      status: 'SUCCESS',
-      details: 'Administrator dashboard initialized successfully.'
-    },
-    {
-      id: 2,
-      timestamp: new Date(Date.now() - 10 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
-      username: 'root',
-      ip_address: '198.51.100.5',
-      device_name: 'Linux OS Daemon',
-      location: 'Beijing, China',
-      status: 'FAILED',
-      details: 'Invalid credential attempt (User root).'
-    },
-    {
-      id: 3,
-      timestamp: new Date(Date.now() - 8 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
-      username: 'admin',
-      ip_address: '198.51.100.5',
-      device_name: 'Linux OS Daemon',
-      location: 'Beijing, China',
-      status: 'FAILED',
-      details: 'Invalid credential attempt (User admin).'
-    },
-    {
-      id: 4,
-      timestamp: new Date(Date.now() - 7 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' '),
-      username: 'administrator',
-      ip_address: '198.51.100.5',
-      device_name: 'Linux OS Daemon',
-      location: 'Beijing, China',
-      status: 'FAILED',
-      details: 'Invalid credential attempt (User administrator). (Failed Attempt #3)'
-    }
-  ],
-  offenses: [
-    {
-      id: 101,
-      source_ip: '198.51.100.5',
-      offense_type: 'Multiple Login Failures Rule Triggered',
-      severity: 'HIGH',
-      failed_attempts: 3,
-      status: 'BLOCKED',
-      last_detected: new Date(Date.now() - 7 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
-    }
-  ],
+  log_activity: [],
+  offenses: [],
   security_rules: [
     { rule_key: 'max_failed_logins', rule_value: 3 },
     { rule_key: 'max_deposit_limit', rule_value: 100000 },

@@ -14,12 +14,24 @@ const localFailures = new Map();
 
 // Helper to parse OS/Device Name from User-Agent if not simulated
 function getDeviceFromUA(userAgent = '') {
-  if (userAgent.includes('Windows')) return 'Windows PC';
-  if (userAgent.includes('Macintosh')) return 'MacBook / Mac OS';
-  if (userAgent.includes('Linux')) return 'Linux System';
-  if (userAgent.includes('Android')) return 'Android Device';
-  if (userAgent.includes('iPhone') || userAgent.includes('iPad')) return 'iOS Device';
-  return 'Generic Web Browser';
+  const ua = userAgent || '';
+  let os = 'Desktop PC';
+  if (ua.includes('Windows NT 10.0')) os = 'Windows 10/11 PC';
+  else if (ua.includes('Windows NT 6.3')) os = 'Windows 8.1 PC';
+  else if (ua.includes('Windows NT 6.1')) os = 'Windows 7 PC';
+  else if (ua.includes('Windows')) os = 'Windows PC';
+  else if (ua.includes('Macintosh') || ua.includes('Mac OS X')) os = 'macOS / Mac Device';
+  else if (ua.includes('Android')) os = 'Android Mobile';
+  else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS Device';
+  else if (ua.includes('Linux')) os = 'Linux System';
+
+  let browser = '';
+  if (ua.includes('Edg/')) browser = ' (Edge)';
+  else if (ua.includes('Chrome/')) browser = ' (Chrome)';
+  else if (ua.includes('Firefox/')) browser = ' (Firefox)';
+  else if (ua.includes('Safari/') && !ua.includes('Chrome')) browser = ' (Safari)';
+
+  return `${os}${browser}`;
 }
 
 // Helper to get client IP dynamically
@@ -195,7 +207,33 @@ app.post('/api/users', async (req, res) => {
 });
 
 /**
- * Endpoint to POST/RESET password (Public Forgot Password Flow)
+ * Endpoint to VERIFY account existence before password reset
+ */
+app.post('/api/users/verify-account', async (req, res) => {
+  const { username } = req.body;
+  if (!username) {
+    return res.status(400).json({ success: false, message: 'Username is required.' });
+  }
+
+  try {
+    const [userRecords] = await db.query("SELECT username, role FROM users WHERE username = ?", [username]);
+    if (!userRecords || userRecords.length === 0) {
+      return res.status(404).json({ success: false, message: `Account "${username}" was not found in system database.` });
+    }
+
+    res.json({ 
+      success: true, 
+      role: userRecords[0].role,
+      message: `Account "${username}" verified (${userRecords[0].role} Role).` 
+    });
+  } catch (err) {
+    console.error("Error verifying user: ", err);
+    res.status(500).json({ success: false, message: 'Database lookup error during account verification.' });
+  }
+});
+
+/**
+ * Endpoint to POST/RESET password (Public Forgot Password Flow for Users & Admins)
  */
 app.post('/api/users/reset', async (req, res) => {
   const { username, newPassword } = req.body;
@@ -213,6 +251,8 @@ app.post('/api/users/reset', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Username not found in system records.' });
     }
 
+    const role = userRecords[0].role;
+
     // Update password
     await db.query(
       "UPDATE users SET password = ? WHERE username = ?",
@@ -222,10 +262,10 @@ app.post('/api/users/reset', async (req, res) => {
     // Audit log
     await db.query(
       "INSERT INTO log_activity (username, ip_address, device_name, location, status, details) VALUES (?, ?, ?, 'Localhost', 'SUCCESS', ?)",
-      [username, clientIP, deviceName, `User successfully reset their password.`]
+      [username, clientIP, deviceName, `Security Credential Recovery: Account "${username}" (${role}) reset password successfully.`]
     );
 
-    res.json({ success: true, message: 'Password reset successfully completed.' });
+    res.json({ success: true, message: `Password reset successfully completed for account "${username}".` });
   } catch (err) {
     console.error("Error resetting password: ", err);
     res.status(500).json({ success: false, message: 'Database error resetting password.' });
@@ -249,25 +289,7 @@ app.post('/api/login', async (req, res) => {
   try {
     const rules = await getSecurityRules();
 
-    // --- RULE 1: Check if IP is currently blocked ---
-    const [blockedRecords] = await db.query(
-      "SELECT status FROM offenses WHERE source_ip = ? AND status = 'BLOCKED'", 
-      [clientIP]
-    );
-
-    if (blockedRecords && blockedRecords.length > 0) {
-      await db.query(
-        "INSERT INTO log_activity (username, ip_address, device_name, location, status, details) VALUES (?, ?, ?, ?, 'FAILED', ?)",
-        [username, clientIP, deviceName, location, "BLOCKED IP ACCESS ATTEMPT: Blacklisted source IP tried to authenticate."]
-      );
-      
-      return res.status(403).json({ 
-        success: false, 
-        message: `Access Denied! Your IP [${clientIP}] is blacklisted due to security policy violations.` 
-      });
-    }
-
-    // --- RULE 2: Validate Credentials against MySQL database ---
+    // --- STEP 1: Validate Credentials & Check User Role First ---
     const [userRecords] = await db.query(
       "SELECT password, role FROM users WHERE username = ?",
       [username]
@@ -279,20 +301,43 @@ app.post('/api/login', async (req, res) => {
     if (userRecords && userRecords.length > 0) {
       const dbPassword = userRecords[0].password;
       const dbRole = userRecords[0].role;
+      role = dbRole;
       
       if (dbPassword === password) {
         isSuccess = true;
-        role = dbRole;
       }
     }
-    
+
+    const isAdminAccount = (role === 'ADMIN') || (username.toLowerCase() === 'admin');
+
+    // --- STEP 2: Check IP Blacklist Rule ---
+    // ADMIN ACCOUNTS ARE IMMUNE TO IP BLACKLISTING AND CAN NEVER BE RESTRICTED
+    if (!isAdminAccount) {
+      const [blockedRecords] = await db.query(
+        "SELECT status FROM offenses WHERE source_ip = ? AND status = 'BLOCKED'", 
+        [clientIP]
+      );
+
+      if (blockedRecords && blockedRecords.length > 0) {
+        await db.query(
+          "INSERT INTO log_activity (username, ip_address, device_name, location, status, details) VALUES (?, ?, ?, ?, 'FAILED', ?)",
+          [username, clientIP, deviceName, location, "BLOCKED IP ACCESS ATTEMPT: Blacklisted source IP tried to authenticate."]
+        );
+        
+        return res.status(403).json({ 
+          success: false, 
+          message: `Access Denied! Your IP [${clientIP}] is blacklisted due to security policy violations.` 
+        });
+      }
+    }
+
     const status = isSuccess ? 'SUCCESS' : 'FAILED';
     let details = isSuccess 
-      ? `${role === 'ADMIN' ? 'Administrator' : 'User'} session established successfully.`
+      ? `${role === 'ADMIN' ? 'Administrator' : 'User'} session established successfully.${isAdminAccount ? ' (Admin Console Root Override Active)' : ''}`
       : 'Invalid password credential attempt.';
 
     if (isSuccess) {
-      // Reset failed count on success
+      // Unblock IP upon successful authentication (especially when Admin logs in from a blacklisted network)
       await db.query("UPDATE offenses SET failed_attempts = 0, status = 'UNBLOCKED' WHERE source_ip = ?", [clientIP]);
       localFailures.set(clientIP, 0);
 
@@ -321,8 +366,10 @@ app.post('/api/login', async (req, res) => {
         [username, clientIP, deviceName, location, status, details]
       );
 
-      // --- RULE 3: Threshold Rule (Compare with dynamic rule limit) ---
-      if (attempts >= rules.maxFailedLogins) {
+      // --- STEP 3: Threshold Blacklist Rule ---
+      // Standard users are blacklisted when reaching maxFailedLogins threshold.
+      // ADMIN accounts are NEVER blacklisted/restricted.
+      if (!isAdminAccount && attempts >= rules.maxFailedLogins) {
         if (rows && rows.length > 0) {
           await db.query(
             "UPDATE offenses SET failed_attempts = ?, status = 'BLOCKED' WHERE source_ip = ?",
@@ -338,7 +385,7 @@ app.post('/api/login', async (req, res) => {
         return res.status(401).json({
           success: false,
           message: `Login failed. Threshold breached! IP [${clientIP}] has been dynamically BLOCKED.`,
-          attempts
+          attempts: attempts
         });
       } else {
         if (rows && rows.length > 0) {
@@ -349,14 +396,14 @@ app.post('/api/login', async (req, res) => {
 
         return res.status(401).json({
           success: false,
-          message: `Invalid credentials. Attempt ${attempts}/${rules.maxFailedLogins} for IP: ${clientIP}`,
-          attempts
+          message: `Login failed. Invalid password credential attempt. (${attempts}/${rules.maxFailedLogins} allowed)`,
+          attempts: attempts
         });
       }
     }
   } catch (error) {
-    console.error('Server error during auth: ', error);
-    return res.status(500).json({ success: false, message: 'Internal server error.' });
+    console.error('Error during login execution: ', error);
+    res.status(500).json({ success: false, message: 'Authentication service encountered a server error.' });
   }
 });
 

@@ -20,8 +20,12 @@ function App() {
   
   // Forgot password flow states
   const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [resetStep, setResetStep] = useState(1); // 1: Account Lookup, 2: New Password, 3: Success
   const [resetUsername, setResetUsername] = useState('');
   const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resetVerifiedRole, setResetVerifiedRole] = useState('');
+  const [resetSuccessMsg, setResetSuccessMsg] = useState('');
   
   // Banking State
   const [balance, setBalance] = useState(12450.80);
@@ -101,20 +105,42 @@ function App() {
     }
   }, [view]);
 
+  const detectUserDevice = () => {
+    const ua = navigator.userAgent || '';
+    const platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+
+    let os = 'Desktop PC';
+    if (platform.includes('Win') || ua.includes('Windows')) {
+      if (ua.includes('Windows NT 10.0')) os = 'Windows 10/11 PC';
+      else if (ua.includes('Windows NT 6.3')) os = 'Windows 8.1 PC';
+      else if (ua.includes('Windows NT 6.1')) os = 'Windows 7 PC';
+      else os = 'Windows PC';
+    } else if (platform.includes('Mac') || ua.includes('Macintosh') || ua.includes('Mac OS')) {
+      os = 'macOS / Mac Device';
+    } else if (ua.includes('Android')) {
+      os = 'Android Mobile';
+    } else if (ua.includes('iPhone') || ua.includes('iPad')) {
+      os = 'iOS Device';
+    } else if (platform.includes('Linux') || ua.includes('Linux')) {
+      os = 'Linux System';
+    }
+
+    let browser = '';
+    if (ua.includes('Edg/')) browser = ' (Edge)';
+    else if (ua.includes('Chrome/')) browser = ' (Chrome)';
+    else if (ua.includes('Firefox/')) browser = ' (Firefox)';
+    else if (ua.includes('Safari/') && !ua.includes('Chrome')) browser = ' (Safari)';
+
+    return `${os}${browser}`;
+  };
+
   const autoScanTelemetry = async () => {
     setScanning(true);
-    
-    const ua = navigator.userAgent;
-    let device = 'Generic Web Browser';
-    if (ua.includes('Windows')) device = 'Windows PC';
-    else if (ua.includes('Macintosh')) device = 'MacBook / Mac OS';
-    else if (ua.includes('Linux')) device = 'Linux System';
-    else if (ua.includes('Android')) device = 'Android Device';
-    else if (ua.includes('iPhone') || ua.includes('iPad')) device = 'iOS Device';
+    const device = detectUserDevice();
     setScannedDevice(device);
 
     let finalIP = '127.0.0.1';
-    let finalLoc = 'Local Network';
+    let finalLoc = 'Resolving Location...';
 
     try {
       const ipifyRes = await fetch('https://api64.ipify.org?format=json');
@@ -125,7 +151,7 @@ function App() {
         }
       }
     } catch (e) {
-      console.warn('Public IP lookup failed. Accessing from offline/private sandbox.');
+      console.warn('Public IP lookup warning:', e.message);
     }
 
     if (finalIP !== '127.0.0.1') {
@@ -134,24 +160,25 @@ function App() {
         if (locRes.ok) {
           const locData = await locRes.json();
           if (locData.city) {
-            finalLoc = `${locData.city}, ${locData.country_name}`;
+            const region = locData.region || locData.region_code || '';
+            finalLoc = `${locData.city}${region ? ', ' + region : ''}, ${locData.country_name}`;
           }
         }
       } catch (err) {
         try {
-          const locRes2 = await fetch(`http://ip-api.com/json/${finalIP}`);
+          const locRes2 = await fetch(`https://ip-api.com/json/${finalIP}`);
           if (locRes2.ok) {
             const locData2 = await locRes2.json();
             if (locData2.city) {
-              finalLoc = `${locData2.city}, ${locData2.country}`;
+              finalLoc = `${locData2.city}${locData2.regionName ? ', ' + locData2.regionName : ''}, ${locData2.country}`;
             }
           }
         } catch (err2) {
-          finalLoc = 'Unknown Location';
+          finalLoc = 'Live Public Network';
         }
       }
     } else {
-      finalLoc = 'Local Host Loopback';
+      finalLoc = 'Local Loopback';
     }
 
     setScannedIP(finalIP);
@@ -204,12 +231,47 @@ function App() {
     }
   };
 
+  const handleVerifyAccount = async (e) => {
+    e.preventDefault();
+    setErrorMsg('');
+
+    if (!resetUsername.trim()) {
+      setErrorMsg('Please enter your account username.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/users/verify-account`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: resetUsername.trim() })
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setResetVerifiedRole(data.role || 'USER');
+        setResetStep(2);
+        setErrorMsg('');
+      } else {
+        setErrorMsg(data.message || 'Account not found in system database.');
+      }
+    } catch (err) {
+      setErrorMsg('Unable to connect to verification server.');
+    }
+  };
+
   const handleResetPassword = async (e) => {
     e.preventDefault();
     setErrorMsg('');
 
-    if (!resetUsername.trim() || !resetNewPassword.trim()) {
-      alert('Please fill out all fields.');
+    if (!resetNewPassword.trim() || !resetConfirmPassword.trim()) {
+      setErrorMsg('Please enter and confirm your new password.');
+      return;
+    }
+
+    if (resetNewPassword !== resetConfirmPassword) {
+      setErrorMsg('Passwords do not match! Please re-type your new password.');
       return;
     }
 
@@ -218,18 +280,17 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: resetUsername,
-          newPassword: resetNewPassword
+          username: resetUsername.trim(),
+          newPassword: resetNewPassword.trim()
         })
       });
 
       const data = await res.json();
 
       if (res.ok && data.success) {
-        alert('Password updated successfully! You can now log in with your new password.');
-        setIsResettingPassword(false);
-        setResetUsername('');
-        setResetNewPassword('');
+        setResetSuccessMsg(`Password successfully updated for account "${resetUsername}" (${resetVerifiedRole})! You can now log in.`);
+        setResetStep(3);
+        setErrorMsg('');
       } else {
         setErrorMsg(data.message || 'Reset failed.');
       }
@@ -581,51 +642,120 @@ function App() {
           // RESET PASSWORD VIEW
           <div className="login-card">
             <div className="login-header">
-              <h1>Forgot Password</h1>
-              <p>Redefine account security credentials</p>
+              <h1 style={{ color: isAdminConsoleMode ? '#ef4444' : '#2196f3' }}>
+                {isAdminConsoleMode ? 'QRadar Password Recovery' : 'Forgot Password'}
+              </h1>
+              <p>{isAdminConsoleMode ? 'Admin Security Credential Reset Center' : 'Reset your Orbit NetBanking password'}</p>
             </div>
             
-            <form className="login-form" onSubmit={handleResetPassword}>
-              {errorMsg && <div className="alert-box alert-error">{errorMsg}</div>}
-              
-              <div className="form-group">
-                <label>Account Username</label>
-                <input 
-                  type="text"
-                  placeholder="Enter your username"
-                  value={resetUsername}
-                  onChange={(e) => setResetUsername(e.target.value)}
-                  required
-                />
+            {errorMsg && <div className="alert-box alert-error" style={{ marginBottom: '15px' }}>{errorMsg}</div>}
+
+            {resetStep === 1 && (
+              // STEP 1: Account Username Verification
+              <form className="login-form" onSubmit={handleVerifyAccount}>
+                <div className="form-group">
+                  <label>Account Username</label>
+                  <input 
+                    type="text"
+                    placeholder={isAdminConsoleMode ? "Enter Admin Username (e.g. admin)" : "Enter Bank Username"}
+                    value={resetUsername}
+                    onChange={(e) => setResetUsername(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <button type="submit" className="login-btn" style={{ backgroundColor: '#2196f3', color: '#fff' }}>
+                  Verify Account Username
+                </button>
+
+                <button 
+                  type="button"
+                  className="login-btn"
+                  style={{ marginTop: '10px', backgroundColor: '#5a646e' }}
+                  onClick={() => {
+                    setIsResettingPassword(false);
+                    setResetStep(1);
+                    setErrorMsg('');
+                    setResetUsername('');
+                    setResetNewPassword('');
+                    setResetConfirmPassword('');
+                  }}
+                >
+                  Back to Sign In
+                </button>
+              </form>
+            )}
+
+            {resetStep === 2 && (
+              // STEP 2: Password Reset Form
+              <form className="login-form" onSubmit={handleResetPassword}>
+                <div style={{ backgroundColor: 'rgba(33, 150, 243, 0.15)', border: '1px solid #2196f3', padding: '10px', borderRadius: '4px', marginBottom: '15px', fontSize: '13px' }}>
+                  <strong>Account Verified:</strong> {resetUsername} <span style={{ padding: '2px 6px', borderRadius: '3px', backgroundColor: resetVerifiedRole === 'ADMIN' ? '#ef4444' : '#4caf50', color: '#fff', fontSize: '11px', marginLeft: '5px' }}>{resetVerifiedRole}</span>
+                </div>
+
+                <div className="form-group">
+                  <label>New Secure Password</label>
+                  <input 
+                    type="password"
+                    placeholder="Enter new password"
+                    value={resetNewPassword}
+                    onChange={(e) => setResetNewPassword(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Confirm New Password</label>
+                  <input 
+                    type="password"
+                    placeholder="Re-enter new password"
+                    value={resetConfirmPassword}
+                    onChange={(e) => setResetConfirmPassword(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <button type="submit" className="login-btn" style={{ backgroundColor: '#4caf50', color: '#fff' }}>
+                  Update Password
+                </button>
+
+                <button 
+                  type="button"
+                  className="login-btn"
+                  style={{ marginTop: '10px', backgroundColor: '#5a646e' }}
+                  onClick={() => {
+                    setResetStep(1);
+                    setErrorMsg('');
+                  }}
+                >
+                  Change Username
+                </button>
+              </form>
+            )}
+
+            {resetStep === 3 && (
+              // STEP 3: Success Screen
+              <div style={{ textAlign: 'center', padding: '10px 0' }}>
+                <div style={{ fontSize: '40px', marginBottom: '10px' }}>✅</div>
+                <h3 style={{ color: '#4caf50', margin: '0 0 10px 0' }}>Password Reset Complete!</h3>
+                <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '20px' }}>{resetSuccessMsg}</p>
+                <button 
+                  type="button"
+                  className="login-btn"
+                  style={{ backgroundColor: '#2196f3', color: '#fff' }}
+                  onClick={() => {
+                    setIsResettingPassword(false);
+                    setResetStep(1);
+                    setErrorMsg('');
+                    setResetUsername('');
+                    setResetNewPassword('');
+                    setResetConfirmPassword('');
+                  }}
+                >
+                  Proceed to Sign In
+                </button>
               </div>
-
-              <div className="form-group">
-                <label>New Secure Password</label>
-                <input 
-                  type="password"
-                  placeholder="Enter new password"
-                  value={resetNewPassword}
-                  onChange={(e) => setResetNewPassword(e.target.value)}
-                  required
-                />
-              </div>
-
-              <button type="submit" className="login-btn" style={{ backgroundColor: '#fbbf24', color: '#111' }}>
-                Reset Password
-              </button>
-
-              <button 
-                type="button"
-                className="login-btn"
-                style={{ marginTop: '10px', backgroundColor: '#5a646e' }}
-                onClick={() => {
-                  setIsResettingPassword(false);
-                  setErrorMsg('');
-                }}
-              >
-                Back to Sign In
-              </button>
-            </form>
+            )}
           </div>
         ) : (
           // STANDARD LOGIN VIEW
@@ -669,21 +799,19 @@ function App() {
                 />
               </div>
 
-              {/* Forgot Password Link - Hidden on Admin Page, only on bank client page */}
-              {!isAdminConsoleMode && (
-                <div style={{ textAlign: 'right', marginBottom: '15px' }}>
-                  <span 
-                    className="action-link" 
-                    style={{ fontSize: '12px', cursor: 'pointer', color: 'var(--accent-blue)' }}
-                    onClick={() => {
-                      setIsResettingPassword(true);
-                      setErrorMsg('');
-                    }}
-                  >
-                    Forgot Password?
-                  </span>
-                </div>
-              )}
+              {/* Forgot Password Link available for both Bank clients and QRadar Admin */}
+              <div style={{ textAlign: 'right', marginBottom: '15px' }}>
+                <span 
+                  className="action-link" 
+                  style={{ fontSize: '12px', cursor: 'pointer', color: 'var(--accent-blue)' }}
+                  onClick={() => {
+                    setIsResettingPassword(true);
+                    setErrorMsg('');
+                  }}
+                >
+                  Forgot Password?
+                </span>
+              </div>
 
               <button type="submit" className="login-btn">
                 {isAdminConsoleMode ? 'Access Console' : 'Secure Login'}
@@ -872,7 +1000,7 @@ function App() {
           
           {/* Top Navigation */}
           <div className="top-nav">
-            <div className="nav-title">IBM Security QRadar SIEM</div>
+            <div className="nav-title">Security QRadar SIEM</div>
             <div className="session-info">
               Admin Session Active | Database Connection: <span style={{ color: '#34d399', fontWeight: 'bold' }}>ONLINE</span>
             </div>
