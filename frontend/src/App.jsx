@@ -207,18 +207,20 @@ function App() {
 
       if (res.ok && data.success) {
         // Enforce console matches role type
-        if (isAdminConsoleMode && data.role !== 'ADMIN') {
-          setErrorMsg('Access Denied: Standard user profiles cannot access the QRadar console.');
+        const isSecurityRole = data.role === 'ADMIN' || data.role === 'WORKER' || data.role === 'ANALYST';
+        
+        if (isAdminConsoleMode && !isSecurityRole) {
+          setErrorMsg('Access Denied: Standard user profiles (like NetBanking clients) cannot access the QRadar console. Please log in through NetBanking.');
           return;
         }
         if (!isAdminConsoleMode && data.role === 'ADMIN') {
-          setErrorMsg('Access Denied: Administrative accounts cannot log in to the user NetBanking portal.');
+          setErrorMsg('Access Denied: Administrative accounts cannot log in to the user NetBanking portal. Please log in through QRadar Console.');
           return;
         }
 
         setLoginTime(Date.now()); // Start session timer
         
-        if (data.role === 'ADMIN') {
+        if (isSecurityRole) {
           setView('QRADAR');
         } else {
           setView('BANK_PORTAL');
